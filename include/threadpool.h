@@ -20,6 +20,7 @@ class Task
 {
 public:
     virtual void run() = 0;
+
 private:
 };
 
@@ -27,6 +28,9 @@ private:
 class Thread
 {
 public:
+    // 启动线程
+    void start();
+
 private:
 };
 
@@ -40,23 +44,36 @@ public:
     // 设置线程池模式
     void setMode(PoolMode mode);
 
+    // // 设置task队列最大线程数
+    // void setTaskQueMaxThreadSize(int size);   // 优化掉, start直接传入
+
+    // 提交任务到线程池
+    void submitTask(std::shared_ptr<Task> sp);
+
     // 开启线程池
-    void start();
+    void start(int initThreadSize = 4);
+
+    // 禁止拷贝和赋值
+    ThreadPool(const ThreadPool &) = delete;
+    ThreadPool &operator=(const ThreadPool &) = delete;
 
 private:
-    std::vector<Thread*> threads_; // 线程列表
-    size_t initThreadSize_; // 初始线程数量
+    // 定义线程函数
+    void threadFunc();
+
+private:
+    std::vector<Thread *> threads_; // 线程列表
+    size_t initThreadSize_;         // 初始线程数量
 
     std::queue<std::shared_ptr<Task>> taskQue_; // 任务队列
-    std::atomic_uint taskSize_; // 任务数量  线程安全
-    int taskQueMaxThreadSize_; // 任务队列最大线程数, 阈值
+    std::atomic_uint taskSize_;                 // 任务数量  线程安全
+    int taskQueMaxThreadSize_;                  // 任务队列最大线程数, 阈值
 
-    std::mutex taskQueMutex_; // 任务队列互斥锁
-    std::condition_variable notFull_; // 任务队列不满
+    std::mutex taskQueMutex_;          // 任务队列互斥锁
+    std::condition_variable notFull_;  // 任务队列不满
     std::condition_variable notEmpty_; // 任务队列不空
 
     PoolMode poolmode_; // 当前线程池模式
-
 };
 
 #endif // THREADPOOL_H
