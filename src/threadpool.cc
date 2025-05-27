@@ -31,6 +31,29 @@ void ThreadPool::setMode(PoolMode mode)
 // 提交任务到线程池
 void ThreadPool::submitTask(std::shared_ptr<Task> sp)
 {
+    // 获取锁
+    std::unique_lock<std::mutex> lock(taskQueMutex_);
+    // 线程通信 等待任务队列有空余
+    // while(taskQue_.size() == TASK_MAX_THRESHOLD)
+    // {
+    //     notFull_.wait(lock); // 等待任务队列不满   条件变量,不要搞混信号量
+    // }
+    // // 优化   lambda条件成立, 会往下走
+    // notFull_.wait(lock,  [&] (){
+    //     return taskQue_.size() < TASK_MAX_THRESHOLD;
+    // });  // 不理解的话可以看一下wait的源码
+    // // 再次优化 用户任务阻塞不能超过1s
+    notFull_.wait_for(lock, std::chrono::seconds(1), [&] () {
+        return taskQue_.size() < TASK_MAX_THRESHOLD;
+    });
+
+    // 有空余 将任务添加到任务队列
+    taskQue_.emplace(sp);
+    ++taskSize_;
+
+    // 通知有任务
+    notEmpty_.notify_all(); // 通知有任务了
+
 }
 
 // 开启线程池
@@ -42,7 +65,12 @@ void ThreadPool::start(int initThreadSize)
     for (int i = 0; i < initThreadSize_; ++i)
     {
         // 创建线程对象并绑定线程函数
-        threads_.emplace_back(new Thread(std::bind(&ThreadPool::threadFunc, this)));
+        
+        // threads_.emplace_back(new Thread(std::bind(&ThreadPool::threadFunc, this)));
+        // c++14
+        auto ptr = std::make_unique<Thread>(std::bind(&ThreadPool::threadFunc, this));
+        threads_.emplace_back(std::move(ptr));
+        // threads_.emplace_back(ptr);  // 这是c++语言层面的问题
     }
 
     // 启动线程
