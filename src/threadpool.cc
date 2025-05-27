@@ -1,5 +1,7 @@
 #include "threadpool.h"
 #include <functional>
+#include <thread>
+#include <iostream>
 
 const int TASK_MAX_THRESHOLD = 1024; // 任务队列最大阈值
 
@@ -37,14 +39,14 @@ void ThreadPool::start(int initThreadSize)
     initThreadSize_ = initThreadSize;
 
     // 创建线程对象
-    for(int i = 0; i < initThreadSize_; ++i) 
+    for (int i = 0; i < initThreadSize_; ++i)
     {
         // 创建线程对象并绑定线程函数
-        threads_.emplace_back(new Thread(std::bind(&ThreadPool::threadFunc, this)));  
+        threads_.emplace_back(new Thread(std::bind(&ThreadPool::threadFunc, this)));
     }
 
     // 启动线程
-    for(int i = 0; i < initThreadSize_; ++i) 
+    for (int i = 0; i < initThreadSize_; ++i)
     {
         // 启动线程的代码
         threads_[i]->start();
@@ -54,13 +56,27 @@ void ThreadPool::start(int initThreadSize)
 // 定义线程函数
 void ThreadPool::threadFunc()
 {
-   
+    // 测试
+    std::cout << "begin threadFunc tid: " << std::this_thread::get_id() << std::endl;
+    std::cout << "end threadfunc tid: " << std::this_thread::get_id() << std::endl;
 }
 
 // **************************线程方法实现*****************************
+// 构造函数，传入线程函数
+Thread::Thread(ThreadFunc func)
+    : func_(std::move(func))
+{
+}
+
+// 析构函数
+Thread::~Thread()
+{
+}
+
 // 启动线程
 void Thread::start()
 {
-    // 启动线程的具体实现
-    
+    // 创建线程并执行传入的函数
+    std::thread t(func_);
+    t.detach(); // 分离线程
 }

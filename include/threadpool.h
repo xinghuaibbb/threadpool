@@ -8,6 +8,8 @@
 #include <mutex>
 #include <condition_variable>
 
+#include <functional>
+
 // 线程池模式
 enum class PoolMode
 {
@@ -28,10 +30,19 @@ private:
 class Thread
 {
 public:
+    using ThreadFunc = std::function<void()>;
+
+    // 构造函数，传入线程函数
+    Thread(ThreadFunc func);
+
+    //析构函数
+    ~Thread();
+
     // 启动线程
     void start();
 
 private:
+    ThreadFunc func_; // 线程函数
 };
 
 // 线程池类型
