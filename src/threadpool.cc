@@ -3,7 +3,7 @@
 #include <thread>
 #include <iostream>
 
-const int TASK_MAX_THRESHOLD = 1024; // 任务队列最大阈值
+const int TASK_MAX_THRESHOLD = 4; // 任务队列最大阈值
 
 ThreadPool::ThreadPool()
     : initThreadSize_(4), taskSize_(0), taskQueMaxThreadSize_(0), poolmode_(PoolMode::MODE_FIXED)
@@ -29,7 +29,7 @@ void ThreadPool::setMode(PoolMode mode)
 // }
 
 // 提交任务到线程池
-void ThreadPool::submitTask(std::shared_ptr<Task> sp)
+Result ThreadPool::submitTask(std::shared_ptr<Task> sp)
 {
     // 获取锁
     std::unique_lock<std::mutex> lock(taskQueMutex_);
@@ -43,9 +43,20 @@ void ThreadPool::submitTask(std::shared_ptr<Task> sp)
     //     return taskQue_.size() < TASK_MAX_THRESHOLD;
     // });  // 不理解的话可以看一下wait的源码
     // // 再次优化 用户任务阻塞不能超过1s
-    notFull_.wait_for(lock, std::chrono::seconds(1), [&] () {
-        return taskQue_.size() < TASK_MAX_THRESHOLD;
-    });
+    
+    if(!notFull_.wait_for(lock, std::chrono::seconds(1), [&] () {
+        return taskQue_.size() < (size_t)TASK_MAX_THRESHOLD;
+    }))
+    {
+        // 超时了, 任务队列满了
+        std::cerr << "任务提交失败!!" << std::endl;
+
+        // return; // 任务提交失败
+        // return task->getResult(); // 设计细节
+         return Result(sp, false);
+        // Result res(sp, false);
+        // return std::move(res); // 返回结果, 任务提交失败
+    }
 
     // 有空余 将任务添加到任务队列
     taskQue_.emplace(sp);
@@ -54,6 +65,8 @@ void ThreadPool::submitTask(std::shared_ptr<Task> sp)
     // 通知有任务
     notEmpty_.notify_all(); // 通知有任务了
 
+
+    return Result(sp, false);
 }
 
 // 开启线程池
@@ -84,10 +97,88 @@ void ThreadPool::start(int initThreadSize)
 // 定义线程函数
 void ThreadPool::threadFunc()
 {
-    // 测试
-    std::cout << "begin threadFunc tid: " << std::this_thread::get_id() << std::endl;
-    std::cout << "end threadfunc tid: " << std::this_thread::get_id() << std::endl;
+    // // 测试
+    // std::cout << "begin threadFunc tid: " << std::this_thread::get_id() << std::endl;
+    // std::cout << "end threadfunc tid: " << std::this_thread::get_id() << std::endl;
+
+    for(;;)
+    {
+        // 获取锁
+        std::unique_lock<std::mutex> lock(taskQueMutex_);
+
+        std::cout<< "Thread " << std::this_thread::get_id() << "尝试获取任务..." << std::endl;
+
+        // 等待任务队列不空
+        notEmpty_.wait(lock, [&] ()->bool {
+            return !taskQue_.empty();
+        });
+
+        std::cout<< "Thread " << std::this_thread::get_id() << "获取到任务, 开始执行..." << std::endl;
+        
+        // 取出任务
+        auto task = taskQue_.front();
+        taskQue_.pop();
+        --taskSize_;
+
+        // 如果还有任务, 通知其他的线程执行
+        if(taskSize_ > 0)
+        {
+            notEmpty_.notify_all(); // 通知其他线程有任务了
+        }
+
+        // 通知任务队列不满
+        notFull_.notify_all();
+
+        // 解锁
+        lock.unlock();
+
+        // 执行任务
+        if (task!=nullptr)
+        {
+            // task->run(); // 执行任务
+            task->exec(); // 执行任务
+        }
+    }
+
 }
+
+// **************************task实现*****************************
+Task::Task()
+    : result_(nullptr) // 初始化任务执行结果为nullptr
+{
+}
+Task::~Task()
+{
+    // 任务析构函数
+    // 如果有结果, 释放结果
+    if(result_ != nullptr)
+    {
+        delete result_;
+        result_ = nullptr;
+    }
+}
+
+void Task::exec()
+{
+    // run();
+    if(result_ != nullptr)
+    {
+        
+        // 设置任务执行结果
+        result_->setValue(run());
+    }
+    else
+    {
+        std::cerr << "Task result is not set!" << std::endl;
+    }
+    
+}
+void Task::setResult(Result* res)
+{
+    // 设置任务执行结果
+    result_ = res;
+}
+
 
 // **************************线程方法实现*****************************
 // 构造函数，传入线程函数
@@ -108,3 +199,29 @@ void Thread::start()
     std::thread t(func_);
     t.detach(); // 分离线程
 }
+
+
+// **************************Result实现*****************************
+Result::Result(std::shared_ptr<Task> task, bool isReady)
+    : task_(task)
+    , isReady_(isReady)
+{
+    task_->setResult(this); // 将本对象作为任务的成员, 用于接收返回值
+}
+
+Any Result::get()
+{
+    // 等待任务完成
+    sem_.wait();
+
+    // 返回任务结果
+    return std::move(any_);
+}
+
+void Result::setValue(Any any)
+{
+    // 存储task返回值
+    this->any_ = std::move(any);
+    sem_.post(); // 任务完成, 通知等待的线程
+}
+
