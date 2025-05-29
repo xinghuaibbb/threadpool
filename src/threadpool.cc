@@ -3,9 +3,9 @@
 #include <iostream>
 #include <thread>
 
-const int TASK_MAX_THRESHOLD = 4;    // 任务队列最大阈值
+const int TASK_MAX_THRESHOLD = INT32_MAX;    // 任务队列最大阈值
 const int Thread_MAX_THRESHOLD = 10; // 线程池最大线程数阈值
-const int THREAD_TIMEOUT = 60; // 线程空闲时间超过60s, 则回收多余的线程
+const int THREAD_TIMEOUT = 10; // 线程空闲时间超过60s, 则回收多余的线程
 
 ThreadPool::ThreadPool()
     : initThreadSize_(4), taskQueMaxThreshHold_(TASK_MAX_THRESHOLD),
@@ -89,9 +89,9 @@ Result ThreadPool::submitTask(std::shared_ptr<Task> sp)
     // });  // 不理解的话可以看一下wait的源码
     // // 再次优化 用户任务阻塞不能超过1s
 
-    if (!notFull_.wait_for(lock, std::chrono::seconds(1), [&]()
+    if (!notFull_.wait_for(lock, std::chrono::seconds(1), [&]()->bool
         {
-            return taskQue_.size() < (size_t)TASK_MAX_THRESHOLD;
+            return taskQue_.size() < (size_t)taskQueMaxThreshHold_;
         }))
     {
         // 超时了, 任务队列满了
@@ -114,14 +114,23 @@ Result ThreadPool::submitTask(std::shared_ptr<Task> sp)
     if (poolmode_ == PoolMode::MODE_CACHED && taskSize_ > idleThreadSize_ &&
         currentThreadSize_ < ThreadSizeThreshold_)
     {
+        std::cout << "创建新线程..." << std::endl;
+        // 这里不能使用 线程id,  这是主线程, 打印的都是一样的
+
         auto ptr =
             std::make_unique<Thread>(std::bind(&ThreadPool::threadFunc, this, std::placeholders::_1));
         int threadId = ptr->getThreadId(); // 获取线程ID
         threads_.emplace(threadId, std::move(ptr)); // 使用unordered_map存储线程对象
+
+        threads_[threadId]->start(); // 启动线程
+
+
+        // 修改线程数量相关
         currentThreadSize_++; // 线程池当前线程总数量加1
+        idleThreadSize_++; // 空闲线程数量加1
     }
 
-    return Result(sp, false);
+    return Result(sp, true); // 返回结果, 任务提交成功
 }
 
 // 开启线程池
@@ -177,19 +186,30 @@ void ThreadPool::threadFunc(int threadid)
         {
             // 区分超时返回和 任务执行返回
             // 1s返回一次
-            while (taskQue_.size() > 0)
+            while (taskQue_.size() == 0)
             {
                 // 条件变量, 超时返回了
                 if (std::cv_status::timeout == notEmpty_.wait_for(lock, std::chrono::seconds(1)))
                 {
                     auto now = std::chrono::high_resolution_clock::now();
                     auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - lastTime);
-                    if (duration.count() >= THREAD_TIMEOUT)
+                    if (duration.count() >= THREAD_TIMEOUT && currentThreadSize_ > initThreadSize_)
                     {
                         // 回收线程
                         // 记录线程数量相关的 需要修改
                         // 把当前线程从线程列表删除--难点: 没有办法匹配 改线程函数 对应哪个 线程对象
+                        std::cout<<"动态创建的线程, 空闲时间超过10s, 回收线程..."<<std::endl;
+                        threads_.erase(threadid); // 删除线程对象
+                        // 不要使用 std::this_thread::get_id() 
 
+                        idleThreadSize_--; // 空闲线程数量减1
+                        currentThreadSize_--; // 线程池当前线程总数量减1
+
+                        std::cout << "Thread " << std::this_thread::get_id()
+                            << "空闲时间超过10s, 回收线程..." << std::endl;
+
+
+                        return; // 退出线程函数
                         
                     }
                 }
@@ -243,16 +263,7 @@ void ThreadPool::threadFunc(int threadid)
 Task::Task()
     : result_(nullptr) // 初始化任务执行结果为nullptr
 {}
-Task::~Task()
-{
-    // 任务析构函数
-    // 如果有结果, 释放结果
-    if (result_ != nullptr)
-    {
-        delete result_;
-        result_ = nullptr;
-    }
-}
+
 
 void Task::exec()
 {
@@ -280,7 +291,7 @@ int Thread::generate_id = 0; // 静态变量, 用于生成唯一的线程ID
 
 Thread::Thread(ThreadFunc func) 
         : func_(std::move(func)) 
-        , threadId_(++generate_id) // 生成唯一的线程ID
+        , threadId_(generate_id++) // 生成唯一的线程ID
         {}
 
 // 析构函数

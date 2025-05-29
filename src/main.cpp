@@ -24,7 +24,7 @@ public:
     Any run() override
     {
         std::cout << "任务开始--thread: " << std::this_thread::get_id() << std::endl;
-        // std::this_thread::sleep_for(std::chrono::seconds(5)); // 模拟任务执行
+        std::this_thread::sleep_for(std::chrono::seconds(3)); 
 
         uLong sum = 0;
         for (uLong i = a_; i <= b_; ++i)
@@ -55,6 +55,10 @@ int main()
     Result res1 = pool.submitTask(std::make_shared<MyTask>(1, 100000000));
     Result res2 = pool.submitTask(std::make_shared<MyTask>(100000001, 200000000));
     Result res3 = pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
+    pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
+    
+    pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
+    pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
 
     // Any: Result.get()  用户拿到返回值
     // Any.cast_()  获取存储的数据的类型   也算是对应 用户需要的类型

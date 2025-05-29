@@ -145,7 +145,7 @@ class Task
 {
 public:
     Task();
-    ~Task();
+    ~Task()= default;
 
     void exec();
     void setResult(Result *res);
