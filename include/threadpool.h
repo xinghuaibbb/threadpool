@@ -8,8 +8,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <stdexcept>
-
 #include <functional>
+#include <unordered_map>
 
 // any类型
 class Any
@@ -159,7 +159,7 @@ private:
 class Thread
 {
 public:
-    using ThreadFunc = std::function<void()>;
+    using ThreadFunc = std::function<void(int)>;
 
     // 构造函数，传入线程函数
     Thread(ThreadFunc func);
@@ -170,8 +170,14 @@ public:
     // 启动线程
     void start();
 
+    // 获取线程ID
+    int getThreadId() const;
+
 private:
     ThreadFunc func_; // 线程函数
+    int threadId_; // 保存线程ID
+    static int generate_id; // 静态变量，用于生成唯一的线程ID
+
 };
 
 /*
@@ -220,12 +226,13 @@ public:
 
 private:
     // 定义线程函数
-    void threadFunc();
+    void threadFunc(int threadid);
 
     bool checkPoolState() const;
 
 private:
-    std::vector<std::unique_ptr<Thread>> threads_; // 线程列表
+    // std::vector<std::unique_ptr<Thread>> threads_; // 线程列表
+    std::unordered_map<int, std::unique_ptr<Thread>> threads_; // 线程列表, 使用unordered_map存储线程对象
     size_t initThreadSize_;                        // 初始线程数量
     std::atomic_uint idleThreadSize_; // 空闲线程数量-cached需要
     std::atomic_uint ThreadSizeThreshold_; // 线程池线程数量阈值, 用于动态变化线程池模式 cached需要

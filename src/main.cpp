@@ -27,11 +27,11 @@ public:
         // std::this_thread::sleep_for(std::chrono::seconds(5)); // 模拟任务执行
 
         uLong sum = 0;
-        for(uLong i = a_; i <= b_; ++i)
+        for (uLong i = a_; i <= b_; ++i)
         {
             sum += i; // 计算从a到b的和
         }
-        
+
 
         std::cout << "任务结束--thread: " << std::this_thread::get_id() << std::endl;
 
@@ -58,7 +58,7 @@ int main()
 
     // Any: Result.get()  用户拿到返回值
     // Any.cast_()  获取存储的数据的类型   也算是对应 用户需要的类型
-    uLong sum1 = res1.get().cast_<uLong>(); 
+    uLong sum1 = res1.get().cast_<uLong>();
     uLong sum2 = res2.get().cast_<uLong>();
     uLong sum3 = res3.get().cast_<uLong>();
     uLong totalSum = sum1 + sum2 + sum3; // 计算总和
@@ -66,7 +66,7 @@ int main()
 
     // 提交多个任务到线程池
     // 测试 3个  11个  任务
-    
+
     // pool.submitTask(std::make_shared<MyTask>());
     // pool.submitTask(std::make_shared<MyTask>());
     // pool.submitTask(std::make_shared<MyTask>());
