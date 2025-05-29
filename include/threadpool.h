@@ -113,7 +113,7 @@ class Result
 public:
     Result(std::shared_ptr<Task> task, bool isReady = true);
     ~Result() = default;
-    Result(Result &&) 
+    Result(Result &&)
     {
         // 移动构造函数
         isReady_ = true; // 移动后任务已准备好
@@ -200,8 +200,13 @@ public:
     // 设置线程池模式
     void setMode(PoolMode mode);
 
-    // // 设置task队列最大线程数
-    // void setTaskQueMaxThreadSize(int size);   // 优化掉, start直接传入
+    // 设置task队列最大线程数
+    void setTaskQueMaxThreshHold(int size);   // 不是优化掉, start直接传入, 而是两种情况 都可以
+
+    // 设置线程池线程数量阈值, 用于动态变化线程池模式
+    void setThreadSizeThreshHold(int size);
+
+    
 
     // 提交任务到线程池
     Result submitTask(std::shared_ptr<Task> sp);
@@ -217,19 +222,27 @@ private:
     // 定义线程函数
     void threadFunc();
 
+    bool checkPoolState() const;
+
 private:
     std::vector<std::unique_ptr<Thread>> threads_; // 线程列表
     size_t initThreadSize_;                        // 初始线程数量
+    std::atomic_uint idleThreadSize_; // 空闲线程数量-cached需要
+    std::atomic_uint ThreadSizeThreshold_; // 线程池线程数量阈值, 用于动态变化线程池模式 cached需要
+    std::atomic_uint currentThreadSize_; // 线程池当前线程总数量 cached需要
 
     std::queue<std::shared_ptr<Task>> taskQue_; // 任务队列
     std::atomic_uint taskSize_;                 // 任务数量  线程安全
-    int taskQueMaxThreadSize_;                  // 任务队列最大线程数, 阈值
+    int taskQueMaxThreshHold_;                  // 任务队列最大线程数, 阈值
 
     std::mutex taskQueMutex_;          // 任务队列互斥锁
     std::condition_variable notFull_;  // 任务队列不满
     std::condition_variable notEmpty_; // 任务队列不空
 
     PoolMode poolmode_; // 当前线程池模式
+    std::atomic_bool isPoolRunning_; // 线程池是否正在运行
+
+   
 };
 
 #endif

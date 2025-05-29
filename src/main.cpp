@@ -46,6 +46,9 @@ private:
 int main()
 {
     ThreadPool pool;
+
+    pool.setMode(PoolMode::MODE_CACHED); // 设置线程池模式为动态变化线程池
+
     pool.start(4); // 启动线程池，初始线程数为4
 
     // 要实现 线程分区计算, 并拿到每个线程执行结果, 肯定需要接受 每个任务结果
