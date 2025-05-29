@@ -245,6 +245,7 @@ private:
     std::mutex taskQueMutex_;          // 任务队列互斥锁
     std::condition_variable notFull_;  // 任务队列不满
     std::condition_variable notEmpty_; // 任务队列不空
+    std::condition_variable exitCond_; // 线程池退出条件变量
 
     PoolMode poolmode_; // 当前线程池模式
     std::atomic_bool isPoolRunning_; // 线程池是否正在运行

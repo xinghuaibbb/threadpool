@@ -16,9 +16,23 @@ ThreadPool::ThreadPool()
     // 初始化线程池
 }
 
+// 线程池析构函数
 ThreadPool::~ThreadPool()
 {
-    // 没有new过, 不用写
+    isPoolRunning_ = false; // 设置线程池不在运行状态
+
+    // 所有线程完成任务了, 此时都在等待 状态, 先唤醒
+    notEmpty_.notify_all(); // 通知所有线程有任务了
+
+
+    // 等待所有线程结束--线程通信
+    // 阻塞 & 任务执行中
+    std::unique_lock<std::mutex> lock(taskQueMutex_);
+    exitCond_.wait(lock, [&]() -> bool
+        {
+            return threads_.size() == 0;
+        }); // 等待所有线程回收
+    std::cout << "线程池已关闭, 所有线程已回收!" << std::endl;
 }
 
 // 检查线程池状态
@@ -173,7 +187,8 @@ void ThreadPool::threadFunc(int threadid)
     auto lastTime = std::chrono::high_resolution_clock::now(); // 记录线程开始时间
 
     this->isPoolRunning_ = true; // 线程池开始运行
-    for (;;)
+    // for (;;)
+    while (this->isPoolRunning_) // 线程池运行状态
     {
         // 获取锁
         std::unique_lock<std::mutex> lock(taskQueMutex_);
@@ -181,12 +196,13 @@ void ThreadPool::threadFunc(int threadid)
         std::cout << "Thread " << std::this_thread::get_id() << "尝试获取任务..."
             << std::endl;
 
-        // cached模式下, 空闲时间超过60s, 则回收多余的线程
-        if (poolmode_ == PoolMode::MODE_CACHED)
+
+        // 区分超时返回和 任务执行返回
+        // 1s返回一次
+        while (taskQue_.size() == 0)
         {
-            // 区分超时返回和 任务执行返回
-            // 1s返回一次
-            while (taskQue_.size() == 0)
+            // cached模式下, 空闲时间超过60s, 则回收多余的线程
+            if (poolmode_ == PoolMode::MODE_CACHED)
             {
                 // 条件变量, 超时返回了
                 if (std::cv_status::timeout == notEmpty_.wait_for(lock, std::chrono::seconds(1)))
@@ -198,7 +214,7 @@ void ThreadPool::threadFunc(int threadid)
                         // 回收线程
                         // 记录线程数量相关的 需要修改
                         // 把当前线程从线程列表删除--难点: 没有办法匹配 改线程函数 对应哪个 线程对象
-                        std::cout<<"动态创建的线程, 空闲时间超过10s, 回收线程..."<<std::endl;
+                        std::cout << "动态创建的线程, 空闲时间超过10s, 回收线程..." << std::endl;
                         threads_.erase(threadid); // 删除线程对象
                         // 不要使用 std::this_thread::get_id() 
 
@@ -207,19 +223,31 @@ void ThreadPool::threadFunc(int threadid)
 
                         std::cout << "Thread " << std::this_thread::get_id()
                             << "空闲时间超过10s, 回收线程..." << std::endl;
-
-
                         return; // 退出线程函数
-                        
+
                     }
                 }
+
+            }
+            else   //fixed模式
+            {
+                // 等待任务队列不空
+                notEmpty_.wait(lock);
+            }
+
+            // 析构时, 唤醒后, 还是会先走这里
+            // 如果线程池不在运行状态, 则退出线程函数
+            // 析构情况1 : 原本就是等待
+            if (!isPoolRunning_) 
+            {
+                threads_.erase(threadid); // 删除线程对象
+                std::cout << "Thread " << std::this_thread::get_id()
+                    << "线程池不在运行状态, 回收线程..." << std::endl;
+                exitCond_.notify_all(); // 通知线程池退出条件变量
+                return;
             }
         }
-        else
-        {
-            // 等待任务队列不空
-            notEmpty_.wait(lock, [&]() -> bool { return !taskQue_.empty(); });
-        }
+
 
         std::cout << "Thread " << std::this_thread::get_id()
             << "获取到任务, 开始执行..." << std::endl;
@@ -256,7 +284,13 @@ void ThreadPool::threadFunc(int threadid)
         lastTime = std::chrono::high_resolution_clock::now(); // 更新线程开始时间
     }
 
-   
+    // 删除线程对象 
+    // 析构情况2: 任务运行中时
+    threads_.erase(threadid); 
+    std::cout << "Thread " << std::this_thread::get_id()
+                    << "线程池不在运行状态, 回收线程..." << std::endl;
+    exitCond_.notify_all(); // 通知线程池退出条件变量
+
 }
 
 // **************************task实现*****************************
@@ -289,10 +323,10 @@ void Task::setResult(Result* res)
 // 构造函数，传入线程函数
 int Thread::generate_id = 0; // 静态变量, 用于生成唯一的线程ID
 
-Thread::Thread(ThreadFunc func) 
-        : func_(std::move(func)) 
-        , threadId_(generate_id++) // 生成唯一的线程ID
-        {}
+Thread::Thread(ThreadFunc func)
+    : func_(std::move(func))
+    , threadId_(generate_id++) // 生成唯一的线程ID
+{}
 
 // 析构函数
 Thread::~Thread() {}
