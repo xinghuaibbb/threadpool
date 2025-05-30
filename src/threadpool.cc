@@ -28,6 +28,9 @@ ThreadPool::~ThreadPool()
         });
     lock.unlock();
     */
+    
+    // 睡一秒
+    std::this_thread::sleep_for(std::chrono::seconds(1)); // 睡一秒, 等待线程池全部启动
 
     std::cout << "线程池析构函数被调用, 正在关闭线程池..." << std::endl;
     isPoolRunning_ = false; // 设置线程池不在运行状态
