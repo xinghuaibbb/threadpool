@@ -28,13 +28,13 @@ ThreadPool::~ThreadPool()
         });
     lock.unlock();
     */
-    
+
     // 睡一秒
-    std::this_thread::sleep_for(std::chrono::seconds(1)); // 睡一秒, 等待线程池全部启动
+    // std::this_thread::sleep_for(std::chrono::seconds(1)); // 睡一秒, 等待线程池全部启动
 
     std::cout << "线程池析构函数被调用, 正在关闭线程池..." << std::endl;
-    isPoolRunning_ = false; // 设置线程池不在运行状态
 
+    isPoolRunning_ = false; // 设置线程池不在运行状态
     // 等待所有线程结束--线程通信
     // 阻塞 & 任务执行中
     std::unique_lock<std::mutex> lock(taskQueMutex_);
@@ -46,7 +46,7 @@ ThreadPool::~ThreadPool()
 
     // 所有线程完成任务了, 此时都在等待 状态, 先唤醒
     notEmpty_.notify_all(); // 通知所有线程有任务了
-    std::cout<< "唤醒所有线程, 准备析构线程池..." << std::endl;
+    std::cout << "唤醒所有线程, 准备析构线程池..." << std::endl;
     exitCond_.wait(lock, [&]() -> bool
         {
             return threads_.size() == 0;
@@ -171,6 +171,7 @@ Result ThreadPool::submitTask(std::shared_ptr<Task> sp)
 // 开启线程池
 void ThreadPool::start(int initThreadSize)
 {
+    this->isPoolRunning_ = true; // 线程池开始运行
     // {
     //     std::unique_lock<std::mutex> lock(taskQueMutex_);
     this->initThreadSize_ = initThreadSize;
@@ -217,7 +218,6 @@ void ThreadPool::threadFunc(int threadid)
 
     auto lastTime = std::chrono::high_resolution_clock::now(); // 记录线程开始时间
 
-    this->isPoolRunning_ = true; // 线程池开始运行
     // for (;;)
     for (;;)
     {
@@ -229,12 +229,11 @@ void ThreadPool::threadFunc(int threadid)
             std::cout << "Thread " << std::this_thread::get_id() << "尝试获取任务..."
                 << std::endl;
 
-
             // 区分超时返回和 任务执行返回
             // 1s返回一次
             while (taskQue_.size() == 0)
             {
-                if (!isPoolRunning_)
+                if (!this->isPoolRunning_)
                 {
                     threads_.erase(threadid);
                     std::cout << "Thread " << std::this_thread::get_id()
@@ -246,7 +245,10 @@ void ThreadPool::threadFunc(int threadid)
                 if (poolmode_ == PoolMode::MODE_CACHED)
                 {
                     // 条件变量, 超时返回了
-                    if (std::cv_status::timeout == notEmpty_.wait_for(lock, std::chrono::seconds(1)))
+                    if (notEmpty_.wait_for(lock, std::chrono::seconds(1), [&]()-> bool
+                        {
+                            return taskQue_.size() == 0;
+                        }))
                     {
                         auto now = std::chrono::high_resolution_clock::now();
                         auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - lastTime);
@@ -307,7 +309,7 @@ void ThreadPool::threadFunc(int threadid)
             // startCond_.notify_all();
 
             // 如果还有任务, 通知其他的线程执行
-            if (taskSize_ > 0)
+            if (taskQue_.size() > 0)
             {
                 notEmpty_.notify_all(); // 通知其他线程有任务了
             }
