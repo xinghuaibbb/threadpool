@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <functional>
 #include <unordered_map>
+#include <thread>
 
 // any类型
 class Any
@@ -218,7 +219,7 @@ public:
     Result submitTask(std::shared_ptr<Task> sp);
 
     // 开启线程池
-    void start(int initThreadSize = 4);
+    void start(int initThreadSize = std::thread::hardware_concurrency());
 
     // 禁止拷贝和赋值
     ThreadPool(const ThreadPool &) = delete;
@@ -246,6 +247,7 @@ private:
     std::condition_variable notFull_;  // 任务队列不满
     std::condition_variable notEmpty_; // 任务队列不空
     std::condition_variable exitCond_; // 线程池退出条件变量
+    std::condition_variable startCond_; // 线程池全部启动条件变量
 
     PoolMode poolmode_; // 当前线程池模式
     std::atomic_bool isPoolRunning_; // 线程池是否正在运行

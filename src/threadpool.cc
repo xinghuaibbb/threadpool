@@ -8,7 +8,7 @@ const int Thread_MAX_THRESHOLD = 10; // 线程池最大线程数阈值
 const int THREAD_TIMEOUT = 10; // 线程空闲时间超过60s, 则回收多余的线程
 
 ThreadPool::ThreadPool()
-    : initThreadSize_(4), taskQueMaxThreshHold_(TASK_MAX_THRESHOLD),
+    : taskQueMaxThreshHold_(TASK_MAX_THRESHOLD),
     ThreadSizeThreshold_(Thread_MAX_THRESHOLD), idleThreadSize_(0),
     currentThreadSize_(0), taskSize_(0), poolmode_(PoolMode::MODE_FIXED),
     isPoolRunning_(false)
@@ -19,20 +19,29 @@ ThreadPool::ThreadPool()
 // 线程池析构函数
 ThreadPool::~ThreadPool()
 {
+    std::cout << "线程池析构函数 调用..." << std::endl;
+    std::unique_lock<std::mutex> lock(taskQueMutex_);
+    startCond_.wait(lock, [&]() -> bool
+        {
+            return taskQue_.size() == 0;
+        });         
+    lock.unlock();
+
+    std::cout << "线程池析构函数被调用, 正在关闭线程池..." << std::endl;
     isPoolRunning_ = false; // 设置线程池不在运行状态
-
-    // 所有线程完成任务了, 此时都在等待 状态, 先唤醒
-    notEmpty_.notify_all(); // 通知所有线程有任务了
-
 
     // 等待所有线程结束--线程通信
     // 阻塞 & 任务执行中
-    std::unique_lock<std::mutex> lock(taskQueMutex_);
+    // std::unique_lock<std::mutex> lock(taskQueMutex_);
+    lock.lock(); // 获取锁
+    // 所有线程完成任务了, 此时都在等待 状态, 先唤醒
+    notEmpty_.notify_all(); // 通知所有线程有任务了
     exitCond_.wait(lock, [&]() -> bool
         {
             return threads_.size() == 0;
         }); // 等待所有线程回收
     std::cout << "线程池已关闭, 所有线程已回收!" << std::endl;
+
 }
 
 // 检查线程池状态
@@ -144,40 +153,49 @@ Result ThreadPool::submitTask(std::shared_ptr<Task> sp)
         idleThreadSize_++; // 空闲线程数量加1
     }
 
+
     return Result(sp, true); // 返回结果, 任务提交成功
 }
 
 // 开启线程池
 void ThreadPool::start(int initThreadSize)
 {
-    initThreadSize_ = initThreadSize;
-    currentThreadSize_ = initThreadSize;
+    // {
+    //     std::unique_lock<std::mutex> lock(taskQueMutex_);
+        this->initThreadSize_ = initThreadSize;
+        this->currentThreadSize_ = initThreadSize;
 
-    // 创建线程对象
-    for (int i = 0; i < initThreadSize_; ++i)
-    {
-        // 创建线程对象并绑定线程函数
+        std::cout << initThreadSize_ << "个线程被创建, 线程池开始运行..." << std::endl;
 
-        // threads_.emplace_back(new Thread(std::bind(&ThreadPool::threadFunc,
-        // this))); c++14
-        auto ptr =
-            std::make_unique<Thread>(std::bind(&ThreadPool::threadFunc, this, std::placeholders::_1));
+        // 创建线程对象
+        for (int i = 0; i < initThreadSize_; ++i)
+        {
+            // 创建线程对象并绑定线程函数
 
-        int threadId = ptr->getThreadId(); // 获取线程ID
+            // threads_.emplace_back(new Thread(std::bind(&ThreadPool::threadFunc,
+            // this))); c++14
+            auto ptr =
+                std::make_unique<Thread>(std::bind(&ThreadPool::threadFunc, this, std::placeholders::_1));
 
-        // threads_.emplace_back(std::move(ptr));
-        // threads_.emplace_back(ptr);  // 这是c++语言层面的问题
-        threads_.emplace(threadId, std::move(ptr)); // 使用unordered_map存储线程对象
-    }
+            int threadId = ptr->getThreadId(); // 获取线程ID
 
-    // 启动线程
-    for (int i = 0; i < initThreadSize_; ++i)
-    {
-        // 启动线程的代码
-        threads_[i]->start();
+            // threads_.emplace_back(std::move(ptr));
+            // threads_.emplace_back(ptr);  // 这是c++语言层面的问题
+            threads_.emplace(threadId, std::move(ptr)); // 使用unordered_map存储线程对象
+        }
 
-        idleThreadSize_++; // 空闲线程数量加1
-    }
+        // 启动线程
+        for (int i = 0; i < initThreadSize_; ++i)
+        {
+            // 启动线程的代码
+            threads_[i]->start();
+
+            idleThreadSize_++; // 空闲线程数量加1
+        }
+    // }
+
+    // startCond_.notify_all(); // 通知线程池全部启动条件变量
+
 }
 
 // 定义线程函数
@@ -199,7 +217,7 @@ void ThreadPool::threadFunc(int threadid)
 
         // 区分超时返回和 任务执行返回
         // 1s返回一次
-        while (taskQue_.size() == 0)
+        while (this->isPoolRunning_ && taskQue_.size() == 0)
         {
             // cached模式下, 空闲时间超过60s, 则回收多余的线程
             if (poolmode_ == PoolMode::MODE_CACHED)
@@ -238,16 +256,23 @@ void ThreadPool::threadFunc(int threadid)
             // 析构时, 唤醒后, 还是会先走这里
             // 如果线程池不在运行状态, 则退出线程函数
             // 析构情况1 : 原本就是等待
-            if (!isPoolRunning_) 
-            {
-                threads_.erase(threadid); // 删除线程对象
-                std::cout << "Thread " << std::this_thread::get_id()
-                    << "线程池不在运行状态, 回收线程..." << std::endl;
-                exitCond_.notify_all(); // 通知线程池退出条件变量
-                return;
-            }
-        }
+            // 死锁优化
+            // if (!isPoolRunning_)
+            // {
+            //     threads_.erase(threadid); // 删除线程对象
+            //     std::cout << "Thread " << std::this_thread::get_id()
+            //         << "线程池不在运行状态, 回收线程..." << std::endl;
+            //     exitCond_.notify_all(); // 通知线程池退出条件变量
+            //     return;
+            // }
 
+
+        }
+        // 死锁优化
+        if (!isPoolRunning_)
+        {
+            break;
+        }
 
         std::cout << "Thread " << std::this_thread::get_id()
             << "获取到任务, 开始执行..." << std::endl;
@@ -258,6 +283,7 @@ void ThreadPool::threadFunc(int threadid)
         auto task = taskQue_.front();
         taskQue_.pop();
         --taskSize_;
+        startCond_.notify_all(); 
 
         // 如果还有任务, 通知其他的线程执行
         if (taskSize_ > 0)
@@ -286,9 +312,9 @@ void ThreadPool::threadFunc(int threadid)
 
     // 删除线程对象 
     // 析构情况2: 任务运行中时
-    threads_.erase(threadid); 
+    threads_.erase(threadid);
     std::cout << "Thread " << std::this_thread::get_id()
-                    << "线程池不在运行状态, 回收线程..." << std::endl;
+        << "线程池不在运行状态, 回收线程..." << std::endl;
     exitCond_.notify_all(); // 通知线程池退出条件变量
 
 }
