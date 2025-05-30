@@ -53,7 +53,7 @@ int main()
          Result res3 = pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
         pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
 
-        // pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
+        pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
         // pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
 
         // uLong sum1 = res1.get().cast_<uLong>();

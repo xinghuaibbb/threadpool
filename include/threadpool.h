@@ -247,7 +247,7 @@ private:
     std::condition_variable notFull_;  // 任务队列不满
     std::condition_variable notEmpty_; // 任务队列不空
     std::condition_variable exitCond_; // 线程池退出条件变量
-    std::condition_variable startCond_; // 线程池全部启动条件变量
+    std::condition_variable startCond_; // 线程池全部启动条件变量 -- 复现死锁本人解决办法
 
     PoolMode poolmode_; // 当前线程池模式
     std::atomic_bool isPoolRunning_; // 线程池是否正在运行
