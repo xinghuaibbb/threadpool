@@ -3,7 +3,7 @@
 #include <iostream>
 #include <thread>
 
-const int TASK_MAX_THRESHOLD = INT32_MAX;    // 任务队列最大阈值
+const int TASK_MAX_THRESHOLD = 2;//INT32_MAX;    // 任务队列最大阈值
 const int Thread_MAX_THRESHOLD = 10; // 线程池最大线程数阈值
 const int THREAD_TIMEOUT = 10; // 线程空闲时间超过60s, 则回收多余的线程
 
@@ -107,6 +107,7 @@ void ThreadPool::setThreadSizeThreshHold(int size)
     }
 }
 
+#if 0
 // 提交任务到线程池
 Result ThreadPool::submitTask(std::shared_ptr<Task> sp)
 {
@@ -167,6 +168,8 @@ Result ThreadPool::submitTask(std::shared_ptr<Task> sp)
 
     return Result(sp, true); // 返回结果, 任务提交成功
 }
+#endif
+
 
 // 开启线程池
 void ThreadPool::start(int initThreadSize)
@@ -221,7 +224,7 @@ void ThreadPool::threadFunc(int threadid)
     // for (;;)
     for (;;)
     {
-        std::shared_ptr<Task> task;
+        Task task;
         {
             // 获取锁
             std::unique_lock<std::mutex> lock(taskQueMutex_);
@@ -278,18 +281,7 @@ void ThreadPool::threadFunc(int threadid)
                     notEmpty_.wait(lock);
                 }
 
-                // 析构时, 唤醒后, 还是会先走这里
-                // 如果线程池不在运行状态, 则退出线程函数
-                // 析构情况1 : 原本就是等待
-                // 死锁优化
-                // if (!isPoolRunning_)
-                // {
-                //     threads_.erase(threadid); // 删除线程对象
-                //     std::cout << "Thread " << std::this_thread::get_id()
-                //         << "线程池不在运行状态, 回收线程..." << std::endl;
-                //     exitCond_.notify_all(); // 通知线程池退出条件变量
-                //     return;
-                // }
+
 
 
             }
@@ -301,7 +293,7 @@ void ThreadPool::threadFunc(int threadid)
             idleThreadSize_--; // 空闲线程数量减1
 
             // 取出任务
-            task = taskQue_.front();
+            task = taskQue_.front(); 
             taskQue_.pop();
             --taskSize_;
 
@@ -320,12 +312,8 @@ void ThreadPool::threadFunc(int threadid)
             // 解锁
             // lock.unlock();
         }
-        // 执行任务
-        if (task != nullptr)
-        {
-            // task->run(); // 执行任务
-            task->exec(); // 执行任务
-        }
+        
+        task();
 
         idleThreadSize_++; // 空闲线程数量加1
 
@@ -463,31 +451,8 @@ void ThreadPool::threadFunc(int threadid)
 }
 #endif
 
-// **************************task实现*****************************
-Task::Task()
-    : result_(nullptr) // 初始化任务执行结果为nullptr
-{}
 
 
-void Task::exec()
-{
-    // run();
-    if (result_ != nullptr)
-    {
-
-        // 设置任务执行结果
-        result_->setValue(run());
-    }
-    else
-    {
-        std::cerr << "Task result is not set!" << std::endl;
-    }
-}
-void Task::setResult(Result* res)
-{
-    // 设置任务执行结果
-    result_ = res;
-}
 
 // **************************线程方法实现*****************************
 // 构造函数，传入线程函数
@@ -515,6 +480,35 @@ int Thread::getThreadId() const
     return threadId_;
 }
 
+
+#if 0
+// **************************task实现*****************************
+Task::Task()
+    : result_(nullptr) // 初始化任务执行结果为nullptr
+{}
+
+
+void Task::exec()
+{
+    // run();
+    if (result_ != nullptr)
+    {
+
+        // 设置任务执行结果
+        result_->setValue(run());
+    }
+    else
+    {
+        std::cerr << "Task result is not set!" << std::endl;
+    }
+}
+void Task::setResult(Result* res)
+{
+    // 设置任务执行结果
+    result_ = res;
+}
+
+
 // **************************Result实现*****************************
 Result::Result(std::shared_ptr<Task> task, bool isReady)
     : task_(task), isReady_(isReady)
@@ -537,3 +531,4 @@ void Result::setValue(Any any)
     this->any_ = std::move(any);
     sem_.post(); // 任务完成, 通知等待的线程
 }
+#endif

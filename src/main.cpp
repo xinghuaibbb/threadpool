@@ -45,23 +45,24 @@ private:
 
 int main()
 {
-    {
-        ThreadPool pool;
-        pool.setMode(PoolMode::MODE_CACHED); 
-        pool.start(2);
-        Result res1 = pool.submitTask(std::make_shared<MyTask>(1, 100000000));
-        Result res3 = pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
-        pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
 
-        pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
-        // pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
+    ThreadPool pool;
+    // pool.setMode(PoolMode::MODE_CACHED); 
+    pool.start(2);
+    Result res1 = pool.submitTask(std::make_shared<MyTask>(1, 100000000));
+    Result res3 = pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
+    pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
 
-        // uLong sum1 = res1.get().cast_<uLong>();
+    pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
+    pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
+    pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
 
-        // std::cout << "计算结果: " << sum1 << std::endl; // 输出计算结果
-    }
+    // uLong sum1 = res1.get().cast_<uLong>();
+
+    // std::cout << "计算结果: " << sum1 << std::endl; // 输出计算结果
+
     std::cout << "所有任务已提交" << std::endl;
-    getchar(); 
+    getchar();
 
 #if 0
     {

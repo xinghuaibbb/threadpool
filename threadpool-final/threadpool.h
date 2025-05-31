@@ -11,7 +11,10 @@
 #include <functional>
 #include <unordered_map>
 #include <thread>
+#include <future>
+#include <iostream>
 
+#if 0
 // any类型
 class Any
 {
@@ -21,17 +24,16 @@ public:
 
     // 由于成员变量使用了unique_ptr, 因此对象也提供 禁止拷贝和赋值, 允许右值拷贝和赋值
     // 禁止左值引用拷贝和赋值
-    Any(const Any &) = delete;
-    Any &operator=(const Any &) = delete;
+    Any(const Any&) = delete;
+    Any& operator=(const Any&) = delete;
     // 允许右值引用拷贝和赋值
-    Any(Any &&) = default;
-    Any &operator=(Any &&) = default;
+    Any(Any&&) = default;
+    Any& operator=(Any&&) = default;
 
     // 模板构造函数, 用于存储任意类型数据
     template <typename T>
     Any(T data) : base_(std::make_unique<Derive<T>>(data))
-    {
-    }
+    {}
 
     // 获取存储的数据的类型
     template <typename T>
@@ -42,7 +44,7 @@ public:
         // 如果转换失败, 返回nullptr
         // 如果转换成功, 返回派生类指针
         // 注意: 这里的T必须是派生类的类型, 否则会抛出异常
-        Derive<T> *pd = dynamic_cast<Derive<T> *>(base_.get());
+        Derive<T>* pd = dynamic_cast<Derive<T> *>(base_.get());
 
         if (pd == nullptr)
         {
@@ -90,7 +92,9 @@ public:
         std::unique_lock<std::mutex> lock(mutex_);
         // 等待直到信号量计数大于0
         cond_.wait(lock, [&]() -> bool
-                   { return resLimit > 0; });
+            {
+                return resLimit > 0;
+            });
         --resLimit; // 减少信号量计数
     }
 
@@ -107,6 +111,7 @@ private:
     int resLimit;                  // 信号量计数
 };
 
+
 class Task; // 前向声明Task类
 // 定义任务返回值
 class Result
@@ -114,7 +119,7 @@ class Result
 public:
     Result(std::shared_ptr<Task> task, bool isReady = true);
     ~Result() = default;
-    Result(Result &&)
+    Result(Result&&)
     {
         // 移动构造函数
         isReady_ = true; // 移动后任务已准备好
@@ -134,6 +139,24 @@ private:
     std::atomic_bool isReady_;   // 任务是否完成标志
 };
 
+// 抽象任务基类
+class Task
+{
+public:
+    Task();
+    ~Task() = default;
+
+    void exec();
+    void setResult(Result* res);
+    virtual Any run() = 0;
+
+private:
+    Result* result_; // 任务执行结果
+};
+
+#endif
+
+
 // 线程池模式
 enum class PoolMode
 {
@@ -141,20 +164,6 @@ enum class PoolMode
     MODE_CACHED, // 动态变化线程池
 };
 
-// 抽象任务基类
-class Task
-{
-public:
-    Task();
-    ~Task()= default;
-
-    void exec();
-    void setResult(Result *res);
-    virtual Any run() = 0;
-
-private:
-    Result *result_; // 任务执行结果
-};
 
 // 线程类型
 class Thread
@@ -213,17 +222,91 @@ public:
     // 设置线程池线程数量阈值, 用于动态变化线程池模式
     void setThreadSizeThreshHold(int size);
 
-    
 
+    // 修改 使用可变参模板
     // 提交任务到线程池
-    Result submitTask(std::shared_ptr<Task> sp);
+    // Result submitTask(std::shared_ptr<Task> sp);
+
+    // 提交任务到线程池---使用可变参模板
+    template <typename Func, typename... Args>
+    auto submitTask(Func&& func, Args &&...args)
+        -> std::future<decltype(func(args...))>
+    {
+        // 打包任务, 放入任务队列
+        using RType = decltype(func(args...)); // 获取函数返回值类型
+        auto task = std::make_shared<std::packaged_task<RType()>>(
+            std::bind(std::forward<Func>(func), std::forward<Args>
+                (args)...)
+        );
+        std::future<RType> result = task->get_future(); // 获取任务的future对象
+
+        // 获取锁
+        std::unique_lock<std::mutex> lock(taskQueMutex_);
+
+        if (!notFull_.wait_for(lock, std::chrono::seconds(1), [&]()->bool
+            {
+                return taskQue_.size() < (size_t)taskQueMaxThreshHold_;
+            }))
+        {
+            // 超时了, 任务队列满了
+            std::cerr << "任务提交失败!!" << std::endl;
+
+            task = std::make_shared<std::packaged_task<RType()>>(
+                []()-> RType
+                {
+                    return RType(); // 返回默认值
+                }
+            );
+            (*task)(); // 执行任务, 返回默认值   --- 这个别忘了
+            return task->get_future();
+        }
+
+        // 有空余 将任务添加到任务队列
+        // taskQue_.emplace(sp);
+
+        // 直接使用 此时的task对象 执行任务
+        taskQue_.emplace(
+            [task]()
+            {
+                (*task)();
+            }
+        );
+
+        ++taskSize_;
+
+        // 通知有任务
+        notEmpty_.notify_all(); // 通知有任务了
+
+        if (poolmode_ == PoolMode::MODE_CACHED && taskSize_ > idleThreadSize_ &&
+            currentThreadSize_ < ThreadSizeThreshold_)
+        {
+            std::cout << "创建新线程..." << std::endl;
+            // 这里不能使用 线程id,  这是主线程, 打印的都是一样的
+
+            auto ptr =
+                std::make_unique<Thread>(std::bind(&ThreadPool::threadFunc, this, std::placeholders::_1));
+            int threadId = ptr->getThreadId(); // 获取线程ID
+            threads_.emplace(threadId, std::move(ptr)); // 使用unordered_map存储线程对象
+
+            threads_[threadId]->start(); // 启动线程
+
+
+            // 修改线程数量相关
+            currentThreadSize_++; // 线程池当前线程总数量加1
+            idleThreadSize_++; // 空闲线程数量加1
+        }
+
+
+        return result; // 返回结果, 任务提交成功
+    }
+
 
     // 开启线程池
     void start(int initThreadSize = std::thread::hardware_concurrency());
 
     // 禁止拷贝和赋值
-    ThreadPool(const ThreadPool &) = delete;
-    ThreadPool &operator=(const ThreadPool &) = delete;
+    ThreadPool(const ThreadPool&) = delete;
+    ThreadPool& operator=(const ThreadPool&) = delete;
 
 private:
     // 定义线程函数
@@ -239,7 +322,12 @@ private:
     std::atomic_uint ThreadSizeThreshold_; // 线程池线程数量阈值, 用于动态变化线程池模式 cached需要
     std::atomic_uint currentThreadSize_; // 线程池当前线程总数量 cached需要
 
-    std::queue<std::shared_ptr<Task>> taskQue_; // 任务队列
+
+    //修改task, 不再需要 指针, 因为现在是封装好的, 之前是用户自己创建的Task
+    using Task = std::function<void()>;
+    std::queue<Task> taskQue_; // 任务队列
+
+
     std::atomic_uint taskSize_;                 // 任务数量  线程安全
     int taskQueMaxThreshHold_;                  // 任务队列最大线程数, 阈值
 
@@ -252,7 +340,7 @@ private:
     PoolMode poolmode_; // 当前线程池模式
     std::atomic_bool isPoolRunning_; // 线程池是否正在运行
 
-   
+
 };
 
 #endif

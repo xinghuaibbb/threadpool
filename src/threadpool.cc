@@ -3,7 +3,7 @@
 #include <iostream>
 #include <thread>
 
-const int TASK_MAX_THRESHOLD = INT32_MAX;    // 任务队列最大阈值
+const int TASK_MAX_THRESHOLD = 2;//INT32_MAX;    // 任务队列最大阈值
 const int Thread_MAX_THRESHOLD = 10; // 线程池最大线程数阈值
 const int THREAD_TIMEOUT = 10; // 线程空闲时间超过60s, 则回收多余的线程
 

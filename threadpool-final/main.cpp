@@ -2,6 +2,7 @@
 #include "threadpool.h"
 #include <thread>
 #include <chrono>
+#include <future>
 
 /*
 多线程 算一下 1+...+ 3亿的和
@@ -10,103 +11,49 @@
 
 using uLong = unsigned long long;
 
-// 重写任务执行逻辑
-class MyTask : public Task
+uLong sum1(uLong start, uLong end)
 {
-public:
-    MyTask(int a, int b) : a_(a), b_(b) {}
+    std::this_thread::sleep_for(std::chrono::seconds(2)); // 模拟耗时操作
+    return start + end;
+}
 
+uLong sum2(uLong a, uLong b, uLong c)
+{
+        std::this_thread::sleep_for(std::chrono::seconds(2)); // 模拟耗时操作
 
-    // 问题一: 怎么返回任意类型的值?
-    // c++17 提供了 std::any, 但是不支持c++14
-    // 但是 我们不用, 我们自己实现, 看看原理
+    return a + b + c;
+}
 
-    Any run() override
-    {
-        std::cout << "任务开始--thread: " << std::this_thread::get_id() << std::endl;
-        std::this_thread::sleep_for(std::chrono::seconds(3));
-
-        uLong sum = 0;
-        for (uLong i = a_; i <= b_; ++i)
-        {
-            sum += i; // 计算从a到b的和
-        }
-
-
-        std::cout << "任务结束--thread: " << std::this_thread::get_id() << std::endl;
-
-        return sum;
-    }
-
-private:
-    int a_; // 任务参数1
-    int b_; // 任务参数2
-};
 
 int main()
 {
-    {
-        ThreadPool pool;
-        pool.setMode(PoolMode::MODE_CACHED); 
-        pool.start(2);
-        Result res1 = pool.submitTask(std::make_shared<MyTask>(1, 100000000));
-        Result res3 = pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
-        pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
+    ThreadPool pool;
+    // pool.setMode(PoolMode::MODE_CACHED); // 设置线程池模式为可变线程池
+    pool.start(2); // 启动线程池，初始线程数为4
 
-        pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
-        // pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
 
-        // uLong sum1 = res1.get().cast_<uLong>();
+    std::future<uLong> r1= pool.submitTask(sum1, 1,2);
+    std::future<uLong> r2= pool.submitTask(sum2, 1, 2, 3);
+    std::future<uLong> r3= pool.submitTask(
+        [](uLong a, uLong b) { return a + b; }, 4, 5
+    );
+    std::future<uLong> r4= pool.submitTask(
+        [](uLong a, uLong b) { return a + b; }, 5, 5
+    );
+    std::future<uLong> r5= pool.submitTask(
+        [](uLong a, uLong b) { return a + b; }, 6, 5
+    );
+    std::future<uLong> r6= pool.submitTask(
+        [](uLong a, uLong b) { return a + b; }, 7, 5
+    );
 
-        // std::cout << "计算结果: " << sum1 << std::endl; // 输出计算结果
-    }
-    std::cout << "所有任务已提交" << std::endl;
-    getchar(); 
+    std::cout << "sum1: " << r1.get() << std::endl; // 获取任务结果
+    std::cout << "sum2: " << r2.get() << std::endl; // 获取任务结果
+    std::cout << "sum3: " << r3.get() << std::endl; // 获取任务结果
+    std::cout << "sum4: " << r4.get() << std::endl; // 获取任务结果
+    std::cout << "sum5: " << r5.get() << std::endl; // 获取任务结果
+    std::cout << "sum6: " << r6.get() << std::endl; // 获取任务结果
 
-#if 0
-    {
-        ThreadPool pool;
+    getchar(); // 等待输入, 保持控制台窗口不关闭
 
-        pool.setMode(PoolMode::MODE_CACHED); // 设置线程池模式为动态变化线程池
-
-        pool.start(4); // 启动线程池，初始线程数为4
-
-        // 要实现 线程分区计算, 并拿到每个线程执行结果, 肯定需要接受 每个任务结果
-        Result res1 = pool.submitTask(std::make_shared<MyTask>(1, 100000000));
-        Result res2 = pool.submitTask(std::make_shared<MyTask>(100000001, 200000000));
-        Result res3 = pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
-        pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
-
-        pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
-        pool.submitTask(std::make_shared<MyTask>(200000001, 300000000));
-
-        // Any: Result.get()  用户拿到返回值
-        // Any.cast_()  获取存储的数据的类型   也算是对应 用户需要的类型
-        uLong sum1 = res1.get().cast_<uLong>();
-        uLong sum2 = res2.get().cast_<uLong>();
-        uLong sum3 = res3.get().cast_<uLong>();
-        uLong totalSum = sum1 + sum2 + sum3; // 计算总和
-        std::cout << "总和: " << totalSum << std::endl; // 输出总和
-
-        // 提交多个任务到线程池
-        // 测试 3个  11个  任务
-
-        // pool.submitTask(std::make_shared<MyTask>());
-        // pool.submitTask(std::make_shared<MyTask>());
-        // pool.submitTask(std::make_shared<MyTask>());
-        // pool.submitTask(std::make_shared<MyTask>());
-        // pool.submitTask(std::make_shared<MyTask>());
-        // pool.submitTask(std::make_shared<MyTask>());
-        // pool.submitTask(std::make_shared<MyTask>());
-        // pool.submitTask(std::make_shared<MyTask>());
-        // pool.submitTask(std::make_shared<MyTask>());
-        // pool.submitTask(std::make_shared<MyTask>());
-
-        // std::this_thread::sleep_for(std::chrono::seconds(5)); // 等待2秒，模拟任务执行
-        std::cout << "所有任务已提交" << std::endl;
-    }
-    // 阻塞,保证持续运行
-    getchar(); // 等待用户输入，防止程序提前结束
-
-#endif
 }
